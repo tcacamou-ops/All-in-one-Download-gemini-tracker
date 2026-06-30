@@ -1,0 +1,11 @@
+parameters:
+    level: 6
+    paths:
+        - src
+    excludePaths:
+        - vendor
+        - wordpress
+    scanDirectories:
+        - wordpress/wp-includes
+includes:
+    - vendor/szepeviktor/phpstan-wordpress/extension.neon

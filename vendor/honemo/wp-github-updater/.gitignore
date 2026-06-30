@@ -1,0 +1,18 @@
+# Dependencies
+/vendor/
+/wordpress/
+
+# Test artifacts
+.phpunit.result.cache
+/build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Composer
+composer.lock

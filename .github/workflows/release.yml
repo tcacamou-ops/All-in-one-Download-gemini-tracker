@@ -1,0 +1,98 @@
+name: Create Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Triggers on version tags like v1.0.0, v1.2.3, etc.
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required to create releases and upload assets
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          tools: composer
+          
+      - name: Install Composer dependencies
+        run: composer install --no-dev --optimize-autoloader --no-interaction
+        
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        
+      - name: Create plugin package
+        run: |
+          echo "📦 Creating plugin package..."
+          
+          # Create a temporary directory
+          TEMP_DIR=$(mktemp -d)
+          PLUGIN_DIR="${TEMP_DIR}/All-in-one-Download-gemini-tracker"
+          
+          # Create the plugin directory
+          mkdir -p "${PLUGIN_DIR}"
+          
+          # Copy files to the plugin directory, excluding those in .distignore
+          echo "Copying files..."
+          rsync -av \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='.gitignore' \
+            --exclude='.distignore' \
+            --exclude='node_modules' \
+            --exclude='tests' \
+            --exclude='phpcs.xml' \
+            --exclude='phpstan.neon' \
+            --exclude='phpunit.xml' \
+            --exclude='composer.json' \
+            --exclude='composer.lock' \
+            --exclude='.editorconfig' \
+            --exclude='.gitattributes' \
+            ./ "${PLUGIN_DIR}/"
+          
+          # Create the ZIP file
+          cd "${TEMP_DIR}"
+          zip -r "all-in-one-download-gemini-tracker-${{ steps.get_version.outputs.VERSION }}.zip" All-in-one-Download-gemini-tracker/
+          
+          # Move the ZIP to the workspace
+          mv "all-in-one-download-gemini-tracker-${{ steps.get_version.outputs.VERSION }}.zip" "${GITHUB_WORKSPACE}/"
+          
+          # Cleanup
+          rm -rf "${TEMP_DIR}"
+          
+          echo "✅ Package created: all-in-one-download-gemini-tracker-${{ steps.get_version.outputs.VERSION }}.zip"
+          
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Release ${{ steps.get_version.outputs.VERSION }}
+          body: |
+            ## All-in-one Download v${{ steps.get_version.outputs.VERSION }}
+            
+            ### Installation
+            
+            1. Download the `all-in-one-download-gemini-tracker-${{ steps.get_version.outputs.VERSION }}.zip` file below
+            2. Go to WordPress Admin > Plugins > Add New
+            3. Click "Upload Plugin" and select the downloaded file
+            4. Click "Install Now" and then "Activate"
+            
+            ### What's Changed
+            
+            See [CHANGELOG.md](https://github.com/tcacamou-ops/All-in-one-Download-gemini-tracker/blob/main/CHANGELOG.md) for detailed changes.
+            
+            ---
+            
+            **Full Changelog**: https://github.com/tcacamou-ops/All-in-one-Download-gemini-tracker/blob/main/CHANGELOG.md
+          files: |
+            all-in-one-download-gemini-tracker-${{ steps.get_version.outputs.VERSION }}.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

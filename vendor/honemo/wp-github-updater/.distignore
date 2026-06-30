@@ -1,0 +1,33 @@
+# Development files
+.git
+.github
+.gitignore
+.distignore
+
+# Dependencies
+/vendor/
+/node_modules/
+
+# Tests
+/tests/
+phpunit.xml
+.phpunit.result.cache
+
+# Build artifacts
+/build/
+/dist/
+
+# Development tools
+phpcs.xml
+phpstan.neon
+composer.json
+composer.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
