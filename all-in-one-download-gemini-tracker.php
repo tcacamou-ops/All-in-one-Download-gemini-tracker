@@ -3,7 +3,7 @@
  * Plugin Name: All-in-one Download Gemini Tracker
  * Plugin URI: https://github.com/tcacamou-ops/All-in-one-Download-gemini-tracker
  * Description: Add-on for All-in-one Download that allows downloading torrents from Gemini Tracker.
- * Version: 0.0.2
+ * Version: 0.0.3
  * Author: tcacamou
  * Author URI: https://github.com/tcacamou-ops
  * Text Domain: all-in-one-download-gemini-tracker
