@@ -1,7 +1,8 @@
 #!/bin/bash
 
-# Script pour incrémenter la version (patch +0.0.1) de ce plugin,
-# mettre à jour readme.txt + le fichier principal, committer, tagger et pousser.
+# Script pour créer et pousser le tag git de ce plugin, à partir de la
+# version courante (Stable tag) déjà présente dans readme.txt.
+# Ne modifie aucun fichier et ne fait aucun commit — voir release-bump-version.sh pour ça.
 # Par défaut : mode dry-run (aucune écriture). Utiliser --apply pour exécuter réellement.
 
 set -e
@@ -36,8 +37,10 @@ for arg in "$@"; do
         --help|-h)
             echo "Usage: $0 [--apply]"
             echo ""
-            echo "  Sans option : mode dry-run (par défaut). N'écrit rien, n'exécute aucune commande git."
-            echo "  --apply     : effectue réellement les changements (fichiers + commit + tag + push)."
+            echo "  Sans option : mode dry-run (par défaut). N'exécute aucune commande git."
+            echo "  --apply     : crée réellement le tag et le pousse avec la branche courante."
+            echo ""
+            echo "Suppose que readme.txt contient déjà la version à taguer (voir release-bump-version.sh)."
             exit 0
             ;;
         *)
@@ -52,15 +55,15 @@ dir_name="$(basename "$PLUGIN_DIR")"
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║         RELEASE — BUMP VERSION + TAG             ║${NC}"
+echo -e "${BOLD}║         RELEASE — TAG + PUSH                      ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════════════╝${NC}"
 echo ""
 log_info "Plugin : $dir_name"
 log_info "Répertoire : $PLUGIN_DIR"
 if [[ "$APPLY" == true ]]; then
-    log_warning "Mode APPLY activé — les fichiers seront modifiés et poussés sur git."
+    log_warning "Mode APPLY activé — un tag sera créé et poussé sur git."
 else
-    log_info "Mode DRY-RUN (par défaut) — aucune modification ne sera effectuée. Utilisez --apply pour exécuter réellement."
+    log_info "Mode DRY-RUN (par défaut) — aucune commande git ne sera exécutée. Utilisez --apply pour exécuter réellement."
 fi
 echo ""
 
@@ -76,48 +79,13 @@ if [[ -z "$current_version" ]]; then
     log_error "Stable tag introuvable dans readme.txt — abandon"
     exit 1
 fi
+new_tag="v${current_version}"
 
-# Localiser le fichier principal du plugin (celui portant l'en-tête "Plugin Name:")
-main_file=""
-for php_file in "$PLUGIN_DIR"/*.php; do
-    [[ -f "$php_file" ]] || continue
-    if grep -q "Plugin Name:" "$php_file"; then
-        main_file="$php_file"
-        break
-    fi
-done
-
-if [[ -z "$main_file" ]]; then
-    log_error "Aucun fichier principal (en-tête 'Plugin Name:') trouvé — abandon"
-    exit 1
-fi
-
-header_version=$(grep -i "^[[:space:]]*\*[[:space:]]*Version:" "$main_file" | sed 's/^[[:space:]]*\*[[:space:]]*Version:[[:space:]]*//' | tr -d '[:space:]')
-if [[ -z "$header_version" ]]; then
-    log_error "Version introuvable dans $(basename "$main_file") — abandon"
-    exit 1
-fi
-
-if [[ "$header_version" != "$current_version" ]]; then
-    log_warning "Divergence de version : readme.txt=$current_version vs $(basename "$main_file")=$header_version — utilisation de $current_version comme référence"
-fi
-
-# Calcul de la nouvelle version (incrément du dernier segment)
-IFS='.' read -r major minor patch <<< "$current_version"
-if [[ -z "$major" || -z "$minor" || -z "$patch" ]]; then
-    log_error "Format de version inattendu ($current_version) — abandon"
-    exit 1
-fi
-new_version="${major}.${minor}.$((patch + 1))"
-new_tag="v${new_version}"
-
-log_info "Version actuelle : $current_version  →  Nouvelle version : $new_version"
-log_info "readme.txt         : Stable tag: $current_version  →  Stable tag: $new_version"
-log_info "$(basename "$main_file") : Version: $header_version  →  Version: $new_version"
+log_info "Version à tagger : $current_version → tag $new_tag"
 
 # Vérifications git
 if ! git -C "$PLUGIN_DIR" rev-parse --git-dir &>/dev/null; then
-    log_error "Pas un repo git — pas de tag/commit/push possible, abandon"
+    log_error "Pas un repo git — pas de tag/push possible, abandon"
     exit 1
 fi
 
@@ -131,13 +99,11 @@ if git -C "$PLUGIN_DIR" tag | grep -qx "$new_tag"; then
     exit 1
 fi
 
+current_branch=$(git -C "$PLUGIN_DIR" rev-parse --abbrev-ref HEAD)
+
 if [[ "$APPLY" != true ]]; then
-    log_dry "sed -i 's/^Stable tag:.*/Stable tag: $new_version/' \"$PLUGIN_DIR/readme.txt\""
-    log_dry "sed -i mise à jour de 'Version: $header_version' → 'Version: $new_version' dans \"$main_file\""
-    log_dry "git -C \"$PLUGIN_DIR\" add readme.txt $(basename "$main_file")"
-    log_dry "git -C \"$PLUGIN_DIR\" commit -m \"chore: bump version to $new_version\""
     log_dry "git -C \"$PLUGIN_DIR\" tag \"$new_tag\""
-    log_dry "git -C \"$PLUGIN_DIR\" push origin <branche-courante>"
+    log_dry "git -C \"$PLUGIN_DIR\" push origin \"$current_branch\""
     log_dry "git -C \"$PLUGIN_DIR\" push origin \"$new_tag\""
     log_success "Simulation terminée pour $dir_name (rien n'a été modifié)"
     echo ""
@@ -146,25 +112,6 @@ if [[ "$APPLY" != true ]]; then
 fi
 
 # ── Exécution réelle (--apply) ──────────────────────────────────────
-log_step "Mise à jour de readme.txt…"
-sed -i "s/^Stable tag:.*/Stable tag: $new_version/" "$PLUGIN_DIR/readme.txt"
-log_success "readme.txt mis à jour"
-
-log_step "Mise à jour de $(basename "$main_file")…"
-sed -i "s/^\([[:space:]]*\*[[:space:]]*Version:[[:space:]]*\).*/\1$new_version/" "$main_file"
-log_success "$(basename "$main_file") mis à jour"
-
-current_branch=$(git -C "$PLUGIN_DIR" rev-parse --abbrev-ref HEAD)
-
-log_step "Commit des changements…"
-if git -C "$PLUGIN_DIR" add readme.txt "$(basename "$main_file")" && \
-   git -C "$PLUGIN_DIR" commit -m "chore: bump version to $new_version"; then
-    log_success "Commit créé"
-else
-    log_error "Échec du commit"
-    exit 1
-fi
-
 log_step "Création du tag $new_tag…"
 if git -C "$PLUGIN_DIR" tag "$new_tag"; then
     log_success "Tag créé"
