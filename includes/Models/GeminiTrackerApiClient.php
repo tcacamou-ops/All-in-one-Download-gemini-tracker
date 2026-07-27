@@ -211,15 +211,42 @@ class GeminiTrackerApiClient
         }
         $what = isset($params['name']) ? str_replace([' '], '.', strtolower($params['name'])) : '';
         $lang = isset($params['lang']) ? $params['lang'] : null;
+        $requested_title = isset($params['name']) ? (string) $params['name'] : '';
+        $type = isset($params['type']) ? $params['type'] : null;
+        $year = ('movie' === $type && isset($params['year']) && '' !== $params['year'] && null !== $params['year'])
+            ? intval($params['year'])
+            : null;
+        $saison = ('tvshow' === $type && isset($params['saison']) && '' !== $params['saison'] && null !== $params['saison'])
+            ? intval($params['saison'])
+            : null;
+        $episode = ('tvshow' === $type && isset($params['episode']) && '' !== $params['episode'] && null !== $params['episode'])
+            ? intval($params['episode'])
+            : null;
         $results = [];
         foreach ($response['data'] as $torrent) {
             $name = $this->torrent_name($torrent);
-            // Skip torrents whose name does not contain the searched title.
+            // Skip torrents whose name does not contain the searched title (fast pre-filter).
             if ($what !== '' && $name !== '' && stripos($name, $what) === false) {
                 continue;
             }
             // Language filter on the torrent name.
             if ($lang !== null && $name !== '' && !$this->matches_lang($name, $lang)) {
+                continue;
+            }
+            // Stricter title/year/season/episode validation, delegated to the core plugin.
+            $is_match = apply_filters('alli1d_torrent_matches_title', true, [
+                'torrent_name' => $name,
+                'title'        => $requested_title,
+                'year'         => $year,
+                'saison'       => $saison,
+                'episode'      => $episode,
+            ]);
+            if (!$is_match) {
+                do_action('alli1d_torrent_rejected', [
+                    'torrent_name' => $name,
+                    'title'        => $requested_title,
+                    'reason'       => 'title_mismatch',
+                ]);
                 continue;
             }
             $results[] = $torrent;
