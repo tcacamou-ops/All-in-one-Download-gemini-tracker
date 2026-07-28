@@ -4,6 +4,7 @@ namespace AllI1D\GeminiTracker\Models;
 use GuzzleHttp\Client;
 use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Exception\RequestException;
+use AllI1D\Services\TorrentMetadataParser;
 
 /**
  * Gemini Tracker API client.
@@ -26,6 +27,9 @@ class GeminiTrackerApiClient
         'sortDirection' => 'desc',
     ];
 
+    // Explicit request timeout (seconds) for all outbound HTTP calls.
+    private const REQUEST_TIMEOUT = 10;
+
     // UNIT3D category_id mapping for this tracker (see wiki "Catégories").
     private $movieCategories  = [1, 7, 13];     // Films, Films Animations, Films Documentaires
     private $tvShowCategories = [2, 6, 14, 15];  // Séries, Series Animations, Series Documentaires, Émission TV
@@ -45,7 +49,7 @@ class GeminiTrackerApiClient
         try {
             $path = $this->baseUrl.'/torrents/filter?' . $this->buildQueryString(['name' => 'test']);
             error_log('Testing Gemini Tracker API connection with path: ' . $this->redact_url( $path ) );
-            $response = $this->client->request('GET', $path, ['headers' => $this->headers()]);
+            $response = $this->client->request('GET', $path, ['headers' => $this->headers(), 'timeout' => self::REQUEST_TIMEOUT]);
             return $response->getStatusCode() === 200;
         } catch (RequestException $e) {
             error_log('Gemini Tracker API connection test failed: ' . $this->redact_url( $e->getMessage() ));
@@ -63,12 +67,82 @@ class GeminiTrackerApiClient
         try {
             $path = $this->baseUrl.'/torrents/filter?' . $this->buildQueryString($params);
             error_log('Requesting Gemini Tracker API with path: ' . $this->redact_url( $path ) );
-            $response = $this->client->request('GET', $path, ['headers' => $this->headers()]);
+            $response = $this->client->request('GET', $path, ['headers' => $this->headers(), 'timeout' => self::REQUEST_TIMEOUT]);
             return $this->filter(json_decode($response->getBody()->getContents(), true), $params);
         } catch (RequestException $e) {
             error_log('Gemini Tracker API request failed: ' . $this->redact_url( $e->getMessage() ));
             return null;
         }
+    }
+
+    /**
+     * Keyword-based search for the guided-search modal.
+     *
+     * Unlike listTorrents()/filter(), this does not apply the stricter
+     * title/year/season/episode match validation: the user is picking a
+     * result manually, so raw provider-ranked results are returned as-is.
+     *
+     * @param array $criteria ['type'=>, 'title'=>, 'saison'=>, 'episode'=>, 'audio_format'=>]
+     * @return array Common result contract items, sorted by score, capped at 10.
+     */
+    public function searchTorrents(array $criteria): array
+    {
+        $params = [
+            'name' => $criteria['title'] ?? '',
+            'type' => $criteria['type'] ?? '',
+        ];
+        if (!empty($criteria['saison'])) {
+            $params['saison'] = $criteria['saison'];
+        }
+        if (!empty($criteria['episode'])) {
+            $params['episode'] = $criteria['episode'];
+        }
+        if (($criteria['audio_format'] ?? '') === 'VF') {
+            $params['lang'] = 'VFF,TRUEFRENCH,FRENCH';
+        }
+
+        try {
+            $path = $this->baseUrl.'/torrents/filter?' . $this->buildQueryString($params);
+            error_log('Searching Gemini Tracker API with path: ' . $this->redact_url( $path ) );
+            $response = $this->client->request('GET', $path, ['headers' => $this->headers(), 'timeout' => self::REQUEST_TIMEOUT]);
+            $body = json_decode($response->getBody()->getContents(), true);
+        } catch (RequestException $e) {
+            error_log('Gemini Tracker API search failed: ' . $this->redact_url( $e->getMessage() ));
+            return [];
+        }
+
+        if (!isset($body['data']) || !is_array($body['data'])) {
+            return [];
+        }
+
+        $parser = new TorrentMetadataParser();
+        $items = [];
+        foreach ($body['data'] as $torrent) {
+            $name = $this->torrent_name($torrent);
+            if ('' === $name) {
+                continue;
+            }
+            $seeders = $torrent['attributes']['seeders'] ?? 0;
+            $items[] = [
+                'provider' => 'gemini_tracker',
+                'title'    => $name,
+                'quality'  => $parser->extract_quality($name),
+                'language' => $parser->extract_language($name),
+                'id'       => $torrent['id'] ?? ($torrent['attributes']['id'] ?? null),
+                'score'    => (int) $seeders,
+                'extra'    => [
+                    'seeders' => $seeders,
+                    'size'    => $torrent['attributes']['size'] ?? null,
+                    'torrent' => $torrent,
+                ],
+            ];
+        }
+
+        usort($items, static function ($a, $b) {
+            return $b['score'] <=> $a['score'];
+        });
+
+        return array_slice($items, 0, 10);
     }
 
     /**
@@ -85,12 +159,30 @@ class GeminiTrackerApiClient
         }
         try {
             error_log('Requesting Gemini Tracker API download with path: ' . $this->redact_url( $url ) );
-            $response = $this->client->request('GET', $url, ['headers' => $this->headers()]);
+            $response = $this->client->request('GET', $url, ['headers' => $this->headers(), 'timeout' => self::REQUEST_TIMEOUT]);
             return $response->getBody()->getContents(); // Binary content of the .torrent
         } catch (RequestException $e) {
-            error_log('Gemini Tracker API download failed: ' . $this->redact_url( $e->getMessage() ));
+            error_log('Gemini Tracker API download failed: ' . $this->redact_url( $this->describe_exception( $e ) ));
             return null;
         }
+    }
+
+    /**
+     * Build a log-friendly description of a failed request, including the
+     * HTTP status and response body when available (Guzzle's own
+     * getMessage() truncates the body preview to ~120 chars).
+     * @param RequestException $e
+     * @return string
+     */
+    private function describe_exception(RequestException $e): string
+    {
+        $response = $e->getResponse();
+        if (null === $response) {
+            return $e->getMessage();
+        }
+        $status = $response->getStatusCode();
+        $body   = (string) $response->getBody();
+        return sprintf('HTTP %d - %s', $status, $body !== '' ? $body : $e->getMessage());
     }
 
     /**

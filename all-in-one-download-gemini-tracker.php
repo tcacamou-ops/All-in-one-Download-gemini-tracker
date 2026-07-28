@@ -3,7 +3,7 @@
  * Plugin Name: All-in-one Download Gemini Tracker
  * Plugin URI: https://github.com/tcacamou-ops/All-in-one-Download-gemini-tracker
  * Description: Add-on for All-in-one Download that allows downloading torrents from Gemini Tracker.
- * Version: 0.0.6
+ * Version: 0.0.7
  * Author: tcacamou
  * Author URI: https://github.com/tcacamou-ops
  * Text Domain: all-in-one-download-gemini-tracker
@@ -13,7 +13,9 @@
 namespace AllI1D\GeminiTracker;
 
 use AllI1D\GeminiTracker\Components\Credentials;
+use AllI1D\GeminiTracker\Filters\GeminiTrackerDownloadSelection;
 use AllI1D\GeminiTracker\Filters\GeminiTrackerMovies;
+use AllI1D\GeminiTracker\Filters\GeminiTrackerSearch;
 use AllI1D\GeminiTracker\Filters\GeminiTrackerTvShows;
 use AllI1D\GeminiTracker\Filters\Status;
 use AllI1D\Helpers\Crypto;
@@ -63,9 +65,13 @@ class Plugin {
     private function initialize_filters() {
         $GeminiTrackerMovies  = new GeminiTrackerMovies();
         $GeminiTrackerTvShows = new GeminiTrackerTvShows();
+        $GeminiTrackerSearch  = new GeminiTrackerSearch();
+        $GeminiTrackerDownloadSelection = new GeminiTrackerDownloadSelection();
         add_filter( 'alli1d_process_tvshow', [$GeminiTrackerTvShows, 'process_tv_show'] );
         add_filter( 'alli1d_process_movie', [$GeminiTrackerMovies, 'process_movie'] );
         add_filter( 'alli1d_process_status', [Status::class, 'process_status'] );
+        add_filter( 'alli1d_search_providers', [$GeminiTrackerSearch, 'search'], 10, 2 );
+        add_filter( 'alli1d_download_selected_result_gemini_tracker', [$GeminiTrackerDownloadSelection, 'download'], 10, 2 );
         add_filter( 'alli1d_provider_settings_modals', [$this, 'register_modal'] );
         add_action( 'admin_init', [$this, 'migrate_credentials_encryption'] );
     }
